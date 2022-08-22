@@ -1,0 +1,211 @@
+From 14228747de2ad9b066d95b5a61e5078141f067b2 Mon Sep 17 00:00:00 2001
+From: SeeFlower <seeflower.dev@gmail.com>
+Date: Sun, 21 Aug 2022 22:04:33 -0400
+Subject: [PATCH] path for Android
+
+---
+ eng/Subsets.props                                |  2 +-
+ eng/common/cross/build-android-rootfs.sh         |  4 ++--
+ eng/native/build-commons.sh                      |  3 ++-
+ src/coreclr/CMakeLists.txt                       |  4 ++--
+ src/coreclr/Directory.Build.props                |  2 ++
+ src/coreclr/runtime.proj                         | 16 ++++++++++++++++
+ src/mono/mono/tools/offsets-tool/offsets-tool.py |  2 +-
+ src/native/libs/CMakeLists.txt                   |  3 +++
+ .../System.Globalization.Native/pal_icushim.c    |  2 ++
+ .../System.Net.Security.Native/extra_libs.cmake  |  2 +-
+ .../extra_libs.cmake                             | 11 +++++++----
+ 11 files changed, 39 insertions(+), 12 deletions(-)
+
+diff --git a/eng/Subsets.props b/eng/Subsets.props
+index 6cf6d5e0a..6458661bf 100644
+--- a/eng/Subsets.props
++++ b/eng/Subsets.props
+@@ -52,7 +52,7 @@
+ 
+   <PropertyGroup>
+     <!-- CLR NativeAot only builds in a subset of the matrix -->
+-    <NativeAotSupported Condition="('$(TargetOS)' == 'windows' or '$(TargetOS)' == 'linux' or '$(TargetOS)' == 'OSX') and ('$(TargetArchitecture)' == 'x64' or '$(TargetArchitecture)' == 'arm64') and ('$(TargetOS)' != 'OSX' or '$(TargetArchitecture)' != 'arm64')">true</NativeAotSupported>
++    <NativeAotSupported Condition="('$(TargetOS)' == 'windows' or '$(TargetOS)' == 'linux' or '$(TargetOS)' == 'OSX' or '$(TargetOS)' == 'Android') and ('$(TargetArchitecture)' == 'x64' or '$(TargetArchitecture)' == 'arm64') and ('$(TargetOS)' != 'OSX' or '$(TargetArchitecture)' != 'arm64')">true</NativeAotSupported>
+ 
+     <!-- If we're building clr.nativeaotlibs and not building the CLR runtime, compile libraries against NativeAOT CoreLib -->
+     <UseNativeAotCoreLib Condition="$(_subset.Contains('+clr.nativeaotlibs+')) and !$(_subset.Contains('+clr+')) and !$(_subset.Contains('+clr.runtime+'))">true</UseNativeAotCoreLib>
+diff --git a/eng/common/cross/build-android-rootfs.sh b/eng/common/cross/build-android-rootfs.sh
+index 42516bbee..49bce0d8c 100755
+--- a/eng/common/cross/build-android-rootfs.sh
++++ b/eng/common/cross/build-android-rootfs.sh
+@@ -107,12 +107,12 @@ __AndroidPackages+=" liblzma"
+ __AndroidPackages+=" krb5"
+ __AndroidPackages+=" openssl"
+ 
+-for path in $(wget -qO- http://termux.net/dists/stable/main/binary-$__AndroidArch/Packages |\
++for path in $(wget -qO- https://mirrors.tuna.tsinghua.edu.cn/termux/apt/termux-main/dists/stable/main/binary-$__AndroidArch/Packages |\
+     grep -A15 "Package: \(${__AndroidPackages// /\\|}\)" | grep -v "static\|tool" | grep Filename); do
+ 
+     if [[ "$path" != "Filename:" ]]; then
+         echo "Working on: $path"
+-        wget -qO- http://termux.net/$path | dpkg -x - "$__TmpDir"
++        wget -qO- https://mirrors.tuna.tsinghua.edu.cn/termux/apt/termux-main/$path | dpkg -x - "$__TmpDir"
+     fi
+ done
+ 
+diff --git a/eng/native/build-commons.sh b/eng/native/build-commons.sh
+index 3f05aef7f..c34cc9afd 100755
+--- a/eng/native/build-commons.sh
++++ b/eng/native/build-commons.sh
+@@ -85,7 +85,7 @@ build_native()
+         fi
+ 
+         # keep ANDROID_PLATFORM in sync with src/mono/Directory.Build.props
+-        cmakeArgs="-DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake -DANDROID_PLATFORM=android-21 $cmakeArgs"
++        cmakeArgs="-DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake -DANDROID_PLATFORM=android-28 $cmakeArgs"
+ 
+         # Don't try to set CC/CXX in init-compiler.sh - it's handled in android.toolchain.cmake already
+         __Compiler="default"
+@@ -102,6 +102,7 @@ build_native()
+             echo "Error: Unknown Android architecture $hostArch."
+             exit 1
+         fi
++        cmakeArgs="-C $__RepoRootDir/eng/native/tryrun.cmake $cmakeArgs"
+     fi
+ 
+     if [[ "$__UseNinja" == 1 ]]; then
+diff --git a/src/coreclr/CMakeLists.txt b/src/coreclr/CMakeLists.txt
+index 7d1ce8d70..979bc59d8 100644
+--- a/src/coreclr/CMakeLists.txt
++++ b/src/coreclr/CMakeLists.txt
+@@ -94,12 +94,12 @@ endif(NOT CLR_CROSS_COMPONENTS_BUILD)
+ #-----------------------------------------
+ if(CLR_CMAKE_HOST_UNIX)
+     if(CLR_CMAKE_TARGET_ANDROID)
+-        find_library(LZMA NAMES lzma)
++        find_library(LZMA NAMES lzma HINTS /home/kali/Desktop/test/runtime/.tools/android-rootfs/android-ndk-r21/sysroot/usr/lib)
+         if(LZMA STREQUAL LZMA-NOTFOUND)
+            message(FATAL_ERROR "Cannot find liblzma.")
+         endif(LZMA STREQUAL LZMA-NOTFOUND)
+ 
+-        find_library(ANDROID_GLOB NAMES android-glob)
++        find_library(ANDROID_GLOB NAMES android-glob HINTS /home/kali/Desktop/test/runtime/.tools/android-rootfs/android-ndk-r21/sysroot/usr/lib)
+         if(ANDROID_GLOB STREQUAL ANDROID_GLOB-NOTFOUND)
+           message(FATAL_ERROR "Cannot find android-glob.")
+         endif()
+diff --git a/src/coreclr/Directory.Build.props b/src/coreclr/Directory.Build.props
+index dd4849e9b..91668fe4c 100644
+--- a/src/coreclr/Directory.Build.props
++++ b/src/coreclr/Directory.Build.props
+@@ -8,6 +8,8 @@
+     <Configuration Condition="'$(Configuration)' == 'release'">Release</Configuration>
+     <Configuration Condition="'$(Configuration)' == 'checked'">Checked</Configuration>
+ 
++    <AndroidApiVersion>28</AndroidApiVersion>
++
+     <UseMonoRuntime>false</UseMonoRuntime>
+   </PropertyGroup>
+ 
+diff --git a/src/coreclr/runtime.proj b/src/coreclr/runtime.proj
+index 6dd2e17fb..2953484df 100644
+--- a/src/coreclr/runtime.proj
++++ b/src/coreclr/runtime.proj
+@@ -51,6 +51,22 @@
+       <_CoreClrBuildArg Condition="'$(ClrCrossComponentsSubset)' == 'true'" Include="-component crosscomponents" />
+     </ItemGroup>
+ 
++   <ItemGroup Condition="'$(TargetsAndroid)' == 'true'">
++      <_CoreClrBuildArg Include="-cmakeargs -DCMAKE_TOOLCHAIN_FILE=$(ANDROID_NDK_ROOT)/build/cmake/android.toolchain.cmake"/>
++      <_CoreClrBuildArg Include="-cmakeargs -DANDROID_NDK=$(ANDROID_NDK_ROOT)"/>
++      <_CoreClrBuildArg Include="-cmakeargs -DANDROID_STL=c++_static"/>
++      <_CoreClrBuildArg Include="-cmakeargs -DANDROID_CPP_FEATURES=&quot;no-rtti no-exceptions&quot;"/>
++      <_CoreClrBuildArg Include="-cmakeargs -DANDROID_NATIVE_API_LEVEL=$(AndroidApiVersion)"/>
++      <_CoreClrBuildArg Include="-cmakeargs -DANDROID_PLATFORM=android-$(AndroidApiVersion)"/>
++      <_CoreClrBuildArg Condition="'$(Platform)' == 'arm64'" Include="-cmakeargs -DANDROID_ABI=arm64-v8a" />
++      <_CoreClrBuildArg Condition="'$(Platform)' == 'arm'" Include="-cmakeargs -DANDROID_ABI=armeabi-v7a" />
++      <_CoreClrBuildArg Condition="'$(Platform)' == 'x86'" Include="-cmakeargs -DANDROID_ABI=x86" />
++      <_CoreClrBuildArg Condition="'$(Platform)' == 'x64'" Include="-cmakeargs -DANDROID_ABI=x86_64" />
++
++      <!-- No LTTNG on Android -->
++      <_CoreClrBuildArg Include="-cmakeargs -DFEATURE_EVENT_TRACE=0"/>
++    </ItemGroup>
++
+     <PropertyGroup>
+       <_CoreClrBuildScript Condition="$([MSBuild]::IsOsPlatform(Windows))">build-runtime.cmd</_CoreClrBuildScript>
+       <_CoreClrBuildScript Condition="!$([MSBuild]::IsOsPlatform(Windows))">build-runtime.sh</_CoreClrBuildScript>
+diff --git a/src/mono/mono/tools/offsets-tool/offsets-tool.py b/src/mono/mono/tools/offsets-tool/offsets-tool.py
+index 4d3a6ccef..d399c4801 100644
+--- a/src/mono/mono/tools/offsets-tool/offsets-tool.py
++++ b/src/mono/mono/tools/offsets-tool/offsets-tool.py
+@@ -80,7 +80,7 @@ class OffsetsTool:
+ 		self.sys_includes=[]
+ 		self.target = None
+ 		self.target_args = []
+-		android_api_level = "-D__ANDROID_API=21"
++		android_api_level = "-D__ANDROID_API=28"
+ 
+ 		if "wasm" in args.abi:
+ 			require_emscipten_path (args)
+diff --git a/src/native/libs/CMakeLists.txt b/src/native/libs/CMakeLists.txt
+index cbb208d0a..38e9da8ca 100644
+--- a/src/native/libs/CMakeLists.txt
++++ b/src/native/libs/CMakeLists.txt
+@@ -170,7 +170,10 @@ if (CLR_CMAKE_TARGET_UNIX OR CLR_CMAKE_TARGET_BROWSER)
+         # System.Security.Cryptography.Native is intentionally disabled on tvOS
+         # it is only used for interacting with OpenSSL which isn't useful there
+     elseif (CLR_CMAKE_TARGET_ANDROID AND NOT FORCE_ANDROID_OPENSSL)
++        add_subdirectory(System.Security.Cryptography.Native)
+         add_subdirectory(System.Security.Cryptography.Native.Android)
++        add_subdirectory(System.Globalization.Native)
++        add_subdirectory(System.Net.Security.Native)
+     elseif (FORCE_ANDROID_OPENSSL)
+         add_subdirectory(System.Security.Cryptography.Native)
+     else ()
+diff --git a/src/native/libs/System.Globalization.Native/pal_icushim.c b/src/native/libs/System.Globalization.Native/pal_icushim.c
+index 9f8994394..d8ab3a61e 100644
+--- a/src/native/libs/System.Globalization.Native/pal_icushim.c
++++ b/src/native/libs/System.Globalization.Native/pal_icushim.c
+@@ -415,6 +415,8 @@ static void InitializeVariableMaxAndTopPointers(char* symbolVersion)
+ #if defined(TARGET_OSX) || defined(TARGET_ANDROID)
+     // OSX and Android always run against ICU version which has ucol_setMaxVariable.
+     // We shouldn't come here.
++    char symbolName[SYMBOL_NAME_SIZE];
++    sprintf(symbolName, "ucol_setVariableTop%s", symbolVersion);
+     assert(false);
+ #elif defined(TARGET_WINDOWS)
+     char symbolName[SYMBOL_NAME_SIZE];
+diff --git a/src/native/libs/System.Net.Security.Native/extra_libs.cmake b/src/native/libs/System.Net.Security.Native/extra_libs.cmake
+index 074407847..5ed32a32b 100644
+--- a/src/native/libs/System.Net.Security.Native/extra_libs.cmake
++++ b/src/native/libs/System.Net.Security.Native/extra_libs.cmake
+@@ -13,7 +13,7 @@ macro(append_extra_security_libs NativeLibsExtra)
+   elseif(HeimdalGssApi)
+        message(FATAL_ERROR "HeimdalGssApi option was set but gssapi headers could not be found and System.Net.Security.Native cannot build without the headers. Try installing heimdal (or the appropriate package for your platform)")
+   else()
+-     find_library(LIBGSS NAMES gssapi_krb5)
++     find_library(LIBGSS NAMES gssapi_krb5 HINTS /home/kali/Desktop/test/runtime/.tools/android-rootfs/android-ndk-r21/sysroot/usr/lib)
+      if(LIBGSS STREQUAL LIBGSS-NOTFOUND)
+         message(FATAL_ERROR "Cannot find libgssapi_krb5 and System.Net.Security.Native cannot build without it. Try installing libkrb5-dev (or the appropriate package for your platform)")
+      endif()
+diff --git a/src/native/libs/System.Security.Cryptography.Native/extra_libs.cmake b/src/native/libs/System.Security.Cryptography.Native/extra_libs.cmake
+index be1d86d62..b73096f67 100644
+--- a/src/native/libs/System.Security.Cryptography.Native/extra_libs.cmake
++++ b/src/native/libs/System.Security.Cryptography.Native/extra_libs.cmake
+@@ -23,11 +23,14 @@ macro(append_extra_cryptography_libs NativeLibsExtra)
+         endif()
+     endif()
+ 
+-    find_package(OpenSSL)
++    find_package(OpenSSL PATHS /home/kali/Desktop/test/runtime/.tools/android-rootfs/android-ndk-r21/sysroot/usr/lib)
+ 
+-    if(NOT OPENSSL_FOUND)
+-        message(FATAL_ERROR "!!! Cannot find libssl and System.Security.Cryptography.Native cannot build without it. Try installing libssl-dev (on Linux, but this may vary by distro) or openssl (on macOS) !!!. See the requirements document for your specific operating system: https://github.com/dotnet/runtime/tree/main/docs/workflow/requirements.")
+-    endif(NOT OPENSSL_FOUND)
++    set(OPENSSL_CRYPTO_LIBRARY /home/kali/Desktop/test/runtime/.tools/android-rootfs/android-ndk-r21/sysroot/usr/lib/libcrypto.so)
++    set(OPENSSL_SSL_LIBRARY /home/kali/Desktop/test/runtime/.tools/android-rootfs/android-ndk-r21/sysroot/usr/lib/libssl.so)
++
++    # if(NOT OPENSSL_FOUND)
++    #     message(FATAL_ERROR "!!! Cannot find libssl and System.Security.Cryptography.Native cannot build without it. Try installing libssl-dev (on Linux, but this may vary by distro) or openssl (on macOS) !!!. See the requirements document for your specific operating system: https://github.com/dotnet/runtime/tree/main/docs/workflow/requirements.")
++    # endif(NOT OPENSSL_FOUND)
+     
+     
+     if (FEATURE_DISTRO_AGNOSTIC_SSL OR CLR_CMAKE_TARGET_OSX OR CLR_CMAKE_TARGET_MACCATALYST)
+-- 
+2.30.2
+
